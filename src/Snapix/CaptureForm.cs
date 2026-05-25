@@ -71,8 +71,8 @@ namespace Snapix
             this.Location = new Point(_virtualBounds.Left, _virtualBounds.Top);
             this.Size = new Size(_virtualBounds.Width, _virtualBounds.Height);
 
-            // 获取窗口列表用于吸附
-            _windowRects = WindowFinder.GetVisibleWindowRects();
+            // 获取窗口列表用于吸附（排除自己 + 全屏窗口）
+            _windowRects = WindowFinder.GetVisibleWindowRects(this.Handle, _virtualBounds);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -154,16 +154,7 @@ namespace Snapix
 
             if (!_selectionDone)
             {
-                // 如果有窗口吸附，直接使用
-                if (_hoveredWindow != Rectangle.Empty)
-                {
-                    _selectionRect = ScreenToLocal(_hoveredWindow);
-                    _selectionDone = true;
-                    ShowToolbar();
-                    Invalidate();
-                    return;
-                }
-
+                // 总是先进入手动框选模式；MouseUp 时若几乎没拖动再回退到窗口吸附
                 _isSelecting = true;
                 _startPoint = e.Location;
                 _endPoint = e.Location;
@@ -224,6 +215,14 @@ namespace Snapix
             {
                 _isSelecting = false;
                 _selectionRect = GetRectangle(_startPoint, _endPoint);
+
+                // 拖动距离过小视为单击：回退到窗口吸附
+                int dx = Math.Abs(_endPoint.X - _startPoint.X);
+                int dy = Math.Abs(_endPoint.Y - _startPoint.Y);
+                if (dx < 4 && dy < 4 && _hoveredWindow != Rectangle.Empty)
+                {
+                    _selectionRect = ScreenToLocal(_hoveredWindow);
+                }
 
                 if (_selectionRect.Width > 3 && _selectionRect.Height > 3)
                 {
@@ -397,14 +396,22 @@ namespace Snapix
             _toolbar.CancelClicked += () => CancelCapture();
             _toolbar.SaveClicked += () => SaveToFile();
 
-            // 定位在选区下方
+            // 定位在选区下方，超出则放上方，仍超出则贴在选区内右下角
             int x = _selectionRect.Left;
             int y = _selectionRect.Bottom + 8;
             if (y + _toolbar.Height > Height)
                 y = _selectionRect.Top - _toolbar.Height - 8;
+            if (y < 0)
+                y = Math.Max(0, _selectionRect.Bottom - _toolbar.Height - 8);
+
+            // x 也要夹回屏幕内
+            if (x + _toolbar.Width > Width)
+                x = Math.Max(0, Width - _toolbar.Width - 4);
+            if (x < 0) x = 4;
 
             _toolbar.Location = new Point(x, y);
             this.Controls.Add(_toolbar);
+            _toolbar.BringToFront();
         }
 
         #endregion
