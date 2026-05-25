@@ -5,6 +5,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
 using Snapix.Native;
+using Snapix.UI;
 
 namespace Snapix
 {
@@ -85,7 +86,7 @@ namespace Snapix
                 g.DrawImage(_screenshot, 0, 0);
 
             // 暗色遮罩
-            using (var overlay = new SolidBrush(Color.FromArgb(100, 0, 0, 0)))
+            using (var overlay = new SolidBrush(Theme.OverlayDim))
             {
                 if (_selectionRect.Width > 0 && _selectionRect.Height > 0)
                 {
@@ -96,7 +97,7 @@ namespace Snapix
                     region.Dispose();
 
                     // 选区边框
-                    using (var pen = new Pen(Color.FromArgb(0, 174, 255), 1))
+                    using (var pen = new Pen(Theme.SelectionBorder, 1.5f))
                         g.DrawRectangle(pen, _selectionRect);
 
                     // 尺寸提示
@@ -111,7 +112,7 @@ namespace Snapix
                     if (_hoveredWindow != Rectangle.Empty)
                     {
                         var localRect = ScreenToLocal(_hoveredWindow);
-                        using (var pen = new Pen(Color.FromArgb(0, 174, 255), 2))
+                        using (var pen = new Pen(Theme.SelectionBorder, 2f))
                             g.DrawRectangle(pen, localRect);
                     }
                 }
@@ -132,16 +133,23 @@ namespace Snapix
         private void DrawSizeInfo(Graphics g)
         {
             string text = $"{_selectionRect.Width} × {_selectionRect.Height}";
-            using (var font = new Font("Segoe UI", 9f))
-            using (var brush = new SolidBrush(Color.White))
-            using (var bg = new SolidBrush(Color.FromArgb(200, 0, 0, 0)))
+            using (var font = Theme.UiFont(9.5f))
+            using (var brush = new SolidBrush(Theme.SizeBadgeText))
+            using (var bg = new SolidBrush(Theme.SizeBadgeBackground))
             {
                 var size = g.MeasureString(text, font);
-                var pt = new PointF(_selectionRect.Left, _selectionRect.Top - size.Height - 4);
-                if (pt.Y < 0) pt.Y = _selectionRect.Top + 4;
+                float padX = 8, padY = 3;
+                float bgW = size.Width + padX * 2;
+                float bgH = size.Height + padY * 2;
 
-                g.FillRectangle(bg, pt.X, pt.Y, size.Width + 8, size.Height + 2);
-                g.DrawString(text, font, brush, pt.X + 4, pt.Y + 1);
+                float bx = _selectionRect.Left;
+                float by = _selectionRect.Top - bgH - 6;
+                if (by < 0) by = _selectionRect.Top + 6;
+                if (bx + bgW > Width) bx = Width - bgW - 4;
+
+                using (var path = GraphicsHelpers.RoundRect(new RectangleF(bx, by, bgW, bgH), 6f))
+                    g.FillPath(bg, path);
+                g.DrawString(text, font, brush, bx + padX, by + padY);
             }
         }
 
@@ -391,10 +399,11 @@ namespace Snapix
                 this.Cursor = tool == ToolType.None ? Cursors.Cross : Cursors.Default;
             };
             _toolbar.ColorSelected += (color) => _currentColor = color;
-            _toolbar.ThicknessSelected += (t) => _currentThickness = t;
             _toolbar.ConfirmClicked += () => ConfirmCapture();
             _toolbar.CancelClicked += () => CancelCapture();
             _toolbar.SaveClicked += () => SaveToFile();
+            _toolbar.UndoClicked += () => Undo();
+            _toolbar.RedoClicked += () => Redo();
 
             // 定位在选区下方，超出则放上方，仍超出则贴在选区内右下角
             int x = _selectionRect.Left;

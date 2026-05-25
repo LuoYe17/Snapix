@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 using Snapix.Native;
+using Snapix.UI;
 
 namespace Snapix
 {
@@ -24,9 +25,29 @@ namespace Snapix
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            // 全局异常拦截，避免静默崩溃
+            Application.ThreadException += (s, e) => ShowFatal(e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                if (e.ExceptionObject is Exception ex) ShowFatal(ex);
+            };
+
             // 创建隐藏主窗口用于接收热键消息
             var mainForm = new MainForm();
             Application.Run(mainForm);
+        }
+
+        private static void ShowFatal(Exception ex)
+        {
+            try
+            {
+                MessageBox.Show(
+                    ex.ToString(),
+                    "Snapix 出错了",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            catch { }
         }
     }
 
@@ -73,7 +94,7 @@ namespace Snapix
             _trayIcon = new NotifyIcon
             {
                 Text = "Snapix - 轻量截图",
-                Icon = SystemIcons.Application, // 后续替换为自定义图标
+                Icon = AppIcon.Create(32, darkBackground: true),
                 Visible = true,
                 ContextMenuStrip = menu
             };
