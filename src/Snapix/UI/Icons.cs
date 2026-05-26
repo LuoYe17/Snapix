@@ -111,23 +111,18 @@ namespace Snapix.UI
 
         private static void DrawMosaic(Graphics g, Pen pen, SolidBrush brush)
         {
-            // 9 宫格里 4 个填充小方块
+            // 圆角矩形外框 + 内部 5 个交错的小色块（"打码"的标准视觉惯例）
+            using (var path = RoundRect(3, 3, 18, 18, 2.5f))
+                g.DrawPath(pen, path);
+
+            // 棋盘式填充：5 个小方块表达"像素化"
             float s = 4.5f;
-            // 行列起点 4，间距 5.5
-            var fills = new[] { (0, 0), (1, 1), (0, 2), (2, 0), (2, 2) };
+            var fills = new[] { (0, 0), (1, 1), (0, 2), (2, 1), (2, 2) };
             foreach (var (cx, cy) in fills)
             {
-                float x = 4f + cx * 5.5f;
-                float y = 4f + cy * 5.5f;
+                float x = 5.5f + cx * 4.5f;
+                float y = 5.5f + cy * 4.5f;
                 g.FillRectangle(brush, x, y, s, s);
-            }
-            // 描边其余位置（轮廓）
-            var outlines = new[] { (1, 0), (0, 1), (2, 1), (1, 2) };
-            foreach (var (cx, cy) in outlines)
-            {
-                float x = 4f + cx * 5.5f;
-                float y = 4f + cy * 5.5f;
-                g.DrawRectangle(pen, x, y, s, s);
             }
         }
 

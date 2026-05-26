@@ -15,6 +15,7 @@ namespace Snapix
     {
         public event Action<ToolType> ToolSelected;
         public event Action<Color> ColorSelected;
+        public event Action<int> ThicknessSelected;
         public event Action ConfirmClicked;
         public event Action CancelClicked;
         public event Action SaveClicked;
@@ -31,6 +32,14 @@ namespace Snapix
 
         private readonly List<IconButton> _toolButtons = new List<IconButton>();
         private readonly List<ColorSwatch> _swatches = new List<ColorSwatch>();
+        private readonly List<ThicknessSwatch> _thicknessSwatches = new List<ThicknessSwatch>();
+        private readonly ToolTip _tooltip = new ToolTip
+        {
+            InitialDelay = 400,
+            ReshowDelay = 100,
+            AutoPopDelay = 5000,
+            ShowAlways = true,
+        };
 
         public AnnotationToolbar()
         {
@@ -54,6 +63,13 @@ namespace Snapix
         }
 
         protected override bool ShowWithoutActivation => true; // 显示时不抢焦点
+
+        /// <summary>外部切换工具时，让线宽 swatch 同步到该工具的偏好值。</summary>
+        public void SetThicknessVisual(int thickness)
+        {
+            foreach (var sw in _thicknessSwatches)
+                sw.SetActive(sw.Thickness == thickness);
+        }
 
         protected override CreateParams CreateParams
         {
@@ -95,9 +111,34 @@ namespace Snapix
 
             x += GroupGap;
 
-            // ========== 颜色组 ==========
-            foreach (var c in Theme.PaletteColors)
+            // ========== 线宽组 ==========
+            int[] thicknesses = { 2, 4, 6 };
+            string[] thicknessNames = { "细", "中", "粗" };
+            for (int i = 0; i < thicknesses.Length; i++)
             {
+                var t = thicknesses[i];
+                var sw = new ThicknessSwatch(t) { Location = new Point(x, swatchY) };
+                sw.Click += (s, e) =>
+                {
+                    foreach (var other in _thicknessSwatches) other.SetActive(false);
+                    sw.SetActive(true);
+                    ThicknessSelected?.Invoke(t);
+                };
+                _thicknessSwatches.Add(sw);
+                this.Controls.Add(sw);
+                _tooltip.SetToolTip(sw, "线宽：" + thicknessNames[i]);
+                x += SwatchSize + Gap;
+            }
+            // 默认中等粗细
+            if (_thicknessSwatches.Count >= 2) _thicknessSwatches[1].SetActive(true);
+
+            x += GroupGap;
+
+            // ========== 颜色组 ==========
+            string[] colorNames = { "红色", "黄色", "绿色", "蓝色", "白色" };
+            for (int i = 0; i < Theme.PaletteColors.Length; i++)
+            {
+                var c = Theme.PaletteColors[i];
                 var sw = new ColorSwatch(c) { Location = new Point(x, swatchY) };
                 sw.Click += (s, e) =>
                 {
@@ -107,6 +148,7 @@ namespace Snapix
                 };
                 _swatches.Add(sw);
                 this.Controls.Add(sw);
+                if (i < colorNames.Length) _tooltip.SetToolTip(sw, colorNames[i]);
                 x += SwatchSize + Gap;
             }
             // 默认第一个色板为选中
@@ -155,6 +197,7 @@ namespace Snapix
             };
             _toolButtons.Add(btn);
             this.Controls.Add(btn);
+            _tooltip.SetToolTip(btn, tooltip);
             return x + ButtonSize + Gap;
         }
 
@@ -170,6 +213,7 @@ namespace Snapix
             };
             btn.Click += (s, e) => action?.Invoke();
             this.Controls.Add(btn);
+            _tooltip.SetToolTip(btn, tooltip);
             return x + ButtonSize + Gap;
         }
 
@@ -200,12 +244,12 @@ namespace Snapix
 
         private int[] ComputeDividerPositions()
         {
-            // 工具组结束 / 颜色组结束 / 撤销组结束
-            // 工具按钮 5 个 + 间隙
+            // 工具(5) | 线宽(3) | 颜色(5) | 撤销/重做(2) | 操作(3)
             int x1 = Pad + (ButtonSize + Gap) * 5 - Gap + GroupGap / 2;
-            int x2 = x1 + GroupGap / 2 + (SwatchSize + Gap) * Theme.PaletteColors.Length - Gap + GroupGap / 2;
-            int x3 = x2 + GroupGap / 2 + (ButtonSize + Gap) * 2 - Gap + GroupGap / 2;
-            return new[] { x1, x2, x3 };
+            int x2 = x1 + GroupGap / 2 + (SwatchSize + Gap) * 3 - Gap + GroupGap / 2;
+            int x3 = x2 + GroupGap / 2 + (SwatchSize + Gap) * Theme.PaletteColors.Length - Gap + GroupGap / 2;
+            int x4 = x3 + GroupGap / 2 + (ButtonSize + Gap) * 2 - Gap + GroupGap / 2;
+            return new[] { x1, x2, x3, x4 };
         }
     }
 }

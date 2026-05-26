@@ -36,7 +36,16 @@ namespace Snapix
         private AnnotationBase _currentAnnotation;
         private ToolType _currentTool = ToolType.None;
         private Color _currentColor = Color.FromArgb(255, 255, 69, 58); // 与色板首项一致
-        private int _currentThickness = 2;
+
+        // 每个工具独立记忆线宽
+        private readonly Dictionary<ToolType, int> _toolThickness = new Dictionary<ToolType, int>
+        {
+            { ToolType.Rectangle, 4 },
+            { ToolType.Arrow,     6 }, // 箭头默认最粗
+            { ToolType.Pen,       4 },
+            { ToolType.Mosaic,    4 },
+        };
+        private int CurrentThickness => _toolThickness.TryGetValue(_currentTool, out var t) ? t : 4;
         private const float TextFontSize = 16f;
 
         // 文字编辑器
@@ -581,8 +590,17 @@ namespace Snapix
                 CommitTextEditor(); // 切换工具前先提交未完成的文字
                 _currentTool = tool;
                 this.Cursor = tool == ToolType.None ? Cursors.Cross : (tool == ToolType.Text ? Cursors.IBeam : Cursors.Default);
+
+                // 工具栏线宽 swatch 同步到当前工具的偏好
+                if (_toolThickness.TryGetValue(tool, out var t))
+                    _toolbar.SetThicknessVisual(t);
             };
             _toolbar.ColorSelected += (color) => _currentColor = color;
+            _toolbar.ThicknessSelected += (t) =>
+            {
+                if (_currentTool != ToolType.None && _toolThickness.ContainsKey(_currentTool))
+                    _toolThickness[_currentTool] = t;
+            };
             _toolbar.ConfirmClicked += () => ConfirmCapture();
             _toolbar.CancelClicked += () => CancelCapture();
             _toolbar.SaveClicked += () => SaveToFile();
@@ -771,11 +789,11 @@ namespace Snapix
             switch (tool)
             {
                 case ToolType.Rectangle:
-                    return new RectangleAnnotation(start, _currentColor, _currentThickness);
+                    return new RectangleAnnotation(start, _currentColor, CurrentThickness);
                 case ToolType.Arrow:
-                    return new ArrowAnnotation(start, _currentColor, _currentThickness);
+                    return new ArrowAnnotation(start, _currentColor, CurrentThickness);
                 case ToolType.Pen:
-                    return new PenAnnotation(start, _currentColor, _currentThickness);
+                    return new PenAnnotation(start, _currentColor, CurrentThickness);
                 case ToolType.Mosaic:
                     return new MosaicAnnotation(start, _screenshot, _selectionRect);
                 case ToolType.Text:

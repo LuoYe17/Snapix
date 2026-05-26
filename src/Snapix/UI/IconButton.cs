@@ -12,12 +12,11 @@ namespace Snapix.UI
     {
         public Icons.IconKind Icon { get; set; }
         public Color? AccentBackground { get; set; } // 非空则始终使用此底色（用于绿✓红✕）
-        public bool IsActive { get; set; } // 选中态
+        public bool IsActive { get; set; }
         public string Tooltip { get; set; }
 
         private bool _hover;
         private bool _pressed;
-        private static ToolTip s_tooltip;
 
         public IconButton()
         {
@@ -44,11 +43,6 @@ namespace Snapix.UI
         {
             base.OnMouseEnter(e);
             _hover = true;
-            if (!string.IsNullOrEmpty(Tooltip))
-            {
-                if (s_tooltip == null) s_tooltip = new ToolTip { InitialDelay = 350, ReshowDelay = 100 };
-                s_tooltip.SetToolTip(this, Tooltip);
-            }
             Invalidate();
         }
 
@@ -119,3 +113,4 @@ namespace Snapix.UI
         }
     }
 }
+
