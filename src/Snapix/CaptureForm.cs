@@ -16,6 +16,7 @@ namespace Snapix
     {
         // 截屏底图
         private Bitmap _screenshot;
+        private Bitmap _dimmedScreenshot; // 预合成的暗化底图（性能优化）
         private Rectangle _virtualBounds;
 
         // 框选状态
@@ -41,6 +42,21 @@ namespace Snapix
         // 文字编辑器
         private TextBox _textEditor;
         private Point _textEditorOrigin; // 选区局部坐标
+
+        // 选区调整 / 移动
+        private enum ResizeHandle
+        {
+            None,
+            TopLeft, Top, TopRight,
+            Left, Right,
+            BottomLeft, Bottom, BottomRight,
+            Move, // 拖动整体
+        }
+        private ResizeHandle _activeHandle = ResizeHandle.None;
+        private Point _dragStartPoint;
+        private Rectangle _dragStartRect;
+        private const int HandleSize = 8;
+        private const int HandleHitPadding = 4;
 
         // 工具栏
         private AnnotationToolbar _toolbar;
@@ -73,6 +89,15 @@ namespace Snapix
             _virtualBounds = ScreenCapture.GetVirtualScreenBounds();
             _screenshot = ScreenCapture.CaptureAllScreens();
 
+            // 预合成"暗化版底图"，避免每次重绘都做昂贵的 Region.Exclude + FillRegion
+            _dimmedScreenshot = new Bitmap(_screenshot.Width, _screenshot.Height, PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(_dimmedScreenshot))
+            {
+                g.DrawImage(_screenshot, 0, 0);
+                using (var dim = new SolidBrush(Theme.OverlayDim))
+                    g.FillRectangle(dim, 0, 0, _dimmedScreenshot.Width, _dimmedScreenshot.Height);
+            }
+
             // 覆盖整个虚拟桌面
             this.Location = new Point(_virtualBounds.Left, _virtualBounds.Top);
             this.Size = new Size(_virtualBounds.Width, _virtualBounds.Height);
@@ -84,47 +109,56 @@ namespace Snapix
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
+            // 关键：关闭抗锯齿和插值，截图重绘根本不需要平滑——大幅提升大图绘制速度
+            g.SmoothingMode = SmoothingMode.None;
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.CompositingMode = CompositingMode.SourceCopy; // 不需要 alpha blend
 
-            // 绘制截屏底图
-            if (_screenshot != null)
-                g.DrawImage(_screenshot, 0, 0);
+            var clip = e.ClipRectangle;
 
-            // 暗色遮罩
-            using (var overlay = new SolidBrush(Theme.OverlayDim))
+            // 用预合成的"暗化底图"做背景（一次 DrawImage，不再 Region.Exclude）
+            if (_dimmedScreenshot != null)
+                g.DrawImage(_dimmedScreenshot, clip, clip, GraphicsUnit.Pixel);
+
+            g.CompositingMode = CompositingMode.SourceOver;
+
+            // 选区内贴回原图（亮的）
+            if (_selectionDone || _isSelecting)
             {
                 if (_selectionRect.Width > 0 && _selectionRect.Height > 0)
                 {
-                    // 遮罩选区外的区域
-                    var region = new Region(new Rectangle(0, 0, Width, Height));
-                    region.Exclude(_selectionRect);
-                    g.FillRegion(overlay, region);
-                    region.Dispose();
-
-                    // 选区边框
-                    using (var pen = new Pen(Theme.SelectionBorder, 1.5f))
-                        g.DrawRectangle(pen, _selectionRect);
-
-                    // 尺寸提示
-                    DrawSizeInfo(g);
-                }
-                else if (!_isSelecting)
-                {
-                    // 未开始选择时全屏遮罩
-                    g.FillRectangle(overlay, 0, 0, Width, Height);
-
-                    // 窗口吸附高亮
-                    if (_hoveredWindow != Rectangle.Empty)
+                    // 仅绘制选区与 clip 的交集部分
+                    var visible = Rectangle.Intersect(_selectionRect, clip);
+                    if (visible.Width > 0 && visible.Height > 0 && _screenshot != null)
                     {
-                        var localRect = ScreenToLocal(_hoveredWindow);
-                        using (var pen = new Pen(Theme.SelectionBorder, 2f))
-                            g.DrawRectangle(pen, localRect);
+                        g.DrawImage(_screenshot, visible, visible, GraphicsUnit.Pixel);
                     }
                 }
-                else
-                {
-                    g.FillRectangle(overlay, 0, 0, Width, Height);
-                }
+            }
+
+            // 仅在绘制装饰元素时再开抗锯齿
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            if (_selectionRect.Width > 0 && _selectionRect.Height > 0)
+            {
+                // 选区边框
+                using (var pen = new Pen(Theme.SelectionBorder, 1.5f))
+                    g.DrawRectangle(pen, _selectionRect);
+
+                // 选中后绘制 8 个手柄（仅当未激活标注工具时显示，避免标注时干扰）
+                if (_selectionDone && _currentTool == ToolType.None)
+                    DrawHandles(g);
+
+                // 尺寸提示
+                DrawSizeInfo(g);
+            }
+            else if (!_isSelecting && _hoveredWindow != Rectangle.Empty)
+            {
+                // 窗口吸附高亮
+                var localRect = ScreenToLocal(_hoveredWindow);
+                using (var pen = new Pen(Theme.SelectionBorder, 2f))
+                    g.DrawRectangle(pen, localRect);
             }
 
             // 绘制已有标注
@@ -133,6 +167,34 @@ namespace Snapix
 
             // 绘制当前正在画的标注
             _currentAnnotation?.Draw(g, _selectionRect.Location);
+        }
+
+        private void DrawHandles(Graphics g)
+        {
+            var r = _selectionRect;
+            var pts = new[]
+            {
+                new Point(r.Left, r.Top),
+                new Point(r.Left + r.Width / 2, r.Top),
+                new Point(r.Right, r.Top),
+                new Point(r.Left, r.Top + r.Height / 2),
+                new Point(r.Right, r.Top + r.Height / 2),
+                new Point(r.Left, r.Bottom),
+                new Point(r.Left + r.Width / 2, r.Bottom),
+                new Point(r.Right, r.Bottom),
+            };
+
+            int s = HandleSize;
+            using (var fill = new SolidBrush(Color.White))
+            using (var border = new Pen(Theme.SelectionBorder, 1.2f))
+            {
+                foreach (var p in pts)
+                {
+                    var rect = new Rectangle(p.X - s / 2, p.Y - s / 2, s, s);
+                    g.FillRectangle(fill, rect);
+                    g.DrawRectangle(border, rect);
+                }
+            }
         }
 
         private void DrawSizeInfo(Graphics g)
@@ -172,6 +234,17 @@ namespace Snapix
                 _startPoint = e.Location;
                 _endPoint = e.Location;
             }
+            else if (_currentTool == ToolType.None)
+            {
+                // 选区完成 + 未激活标注工具：判定 resize 手柄 / 移动
+                var handle = HitTestHandle(e.Location);
+                if (handle != ResizeHandle.None)
+                {
+                    _activeHandle = handle;
+                    _dragStartPoint = e.Location;
+                    _dragStartRect = _selectionRect;
+                }
+            }
             else if (_currentTool == ToolType.Text)
             {
                 // 文字工具：点击位置弹出输入框
@@ -179,7 +252,7 @@ namespace Snapix
                 CommitTextEditor();
                 BeginTextEditor(e.Location);
             }
-            else if (_currentTool != ToolType.None)
+            else
             {
                 // 开始标注
                 var relativePoint = new Point(e.X - _selectionRect.X, e.Y - _selectionRect.Y);
@@ -193,9 +266,26 @@ namespace Snapix
 
             if (_isSelecting)
             {
+                var oldRect = _selectionRect;
                 _endPoint = e.Location;
                 _selectionRect = GetRectangle(_startPoint, _endPoint);
-                Invalidate();
+
+                var union = Rectangle.Union(
+                    InflateForDecorations(oldRect),
+                    InflateForDecorations(_selectionRect));
+                Invalidate(union);
+            }
+            else if (_activeHandle != ResizeHandle.None)
+            {
+                var oldRect = _selectionRect;
+                ApplyResize(e.Location);
+                RepositionToolbar();
+
+                // 重绘新旧选区 + 装饰区域（手柄 + 尺寸 badge 在选区外侧，需要更大边距）
+                var union = Rectangle.Union(
+                    InflateForDecorations(oldRect),
+                    InflateForDecorations(_selectionRect));
+                Invalidate(union);
             }
             else if (!_selectionDone)
             {
@@ -206,7 +296,6 @@ namespace Snapix
                 {
                     if (wr.Contains(screenPt))
                     {
-                        // 选最小的包含鼠标的窗口
                         if (found == Rectangle.Empty || (wr.Width * wr.Height < found.Width * found.Height))
                             found = wr;
                     }
@@ -223,6 +312,12 @@ namespace Snapix
                 var relativePoint = new Point(e.X - _selectionRect.X, e.Y - _selectionRect.Y);
                 _currentAnnotation.Update(relativePoint);
                 Invalidate();
+            }
+            else if (_selectionDone && _currentTool == ToolType.None)
+            {
+                // 仅更新光标
+                var handle = HitTestHandle(e.Location);
+                this.Cursor = CursorForHandle(handle);
             }
         }
 
@@ -250,6 +345,11 @@ namespace Snapix
                     ShowToolbar();
                 }
 
+                Invalidate();
+            }
+            else if (_activeHandle != ResizeHandle.None)
+            {
+                _activeHandle = ResizeHandle.None;
                 Invalidate();
             }
             else if (_currentAnnotation != null)
@@ -423,22 +523,8 @@ namespace Snapix
             _toolbar.UndoClicked += () => Undo();
             _toolbar.RedoClicked += () => Redo();
 
-            // 定位在选区下方，超出则放上方，仍超出则贴在选区内右下角
-            int x = _selectionRect.Left;
-            int y = _selectionRect.Bottom + 8;
-            if (y + _toolbar.Height > Height)
-                y = _selectionRect.Top - _toolbar.Height - 8;
-            if (y < 0)
-                y = Math.Max(0, _selectionRect.Bottom - _toolbar.Height - 8);
-
-            // x 也要夹回屏幕内
-            if (x + _toolbar.Width > Width)
-                x = Math.Max(0, Width - _toolbar.Width - 4);
-            if (x < 0) x = 4;
-
-            _toolbar.Location = new Point(x, y);
-            this.Controls.Add(_toolbar);
-            _toolbar.BringToFront();
+            RepositionToolbar();
+            _toolbar.Show(this); // 独立窗口显示，不进入 this.Controls
         }
 
         #endregion
@@ -452,6 +538,140 @@ namespace Snapix
             int w = Math.Abs(p1.X - p2.X);
             int h = Math.Abs(p1.Y - p2.Y);
             return new Rectangle(x, y, w, h);
+        }
+
+        /// <summary>
+        /// 把选区扩展到包含所有装饰元素（边框、8 手柄、尺寸 badge）的最小区域。
+        /// 尺寸 badge 高度约 22px，放在选区上方，所以顶部要多留空间。
+        /// </summary>
+        private Rectangle InflateForDecorations(Rectangle r)
+        {
+            const int sideMargin = HandleSize + 4;
+            const int topMargin = 30; // 容纳尺寸 badge
+            return new Rectangle(
+                r.X - sideMargin,
+                r.Y - topMargin,
+                r.Width + sideMargin * 2,
+                r.Height + topMargin + sideMargin);
+        }
+
+        // ---------- 选区调整/移动 ----------
+
+        private ResizeHandle HitTestHandle(Point p)
+        {
+            if (!_selectionDone) return ResizeHandle.None;
+
+            int half = HandleSize / 2 + HandleHitPadding;
+            var r = _selectionRect;
+
+            // 8 手柄中心点
+            var pts = new[]
+            {
+                (ResizeHandle.TopLeft,    new Point(r.Left,           r.Top)),
+                (ResizeHandle.Top,        new Point(r.Left + r.Width/2, r.Top)),
+                (ResizeHandle.TopRight,   new Point(r.Right,          r.Top)),
+                (ResizeHandle.Left,       new Point(r.Left,           r.Top + r.Height/2)),
+                (ResizeHandle.Right,      new Point(r.Right,          r.Top + r.Height/2)),
+                (ResizeHandle.BottomLeft, new Point(r.Left,           r.Bottom)),
+                (ResizeHandle.Bottom,     new Point(r.Left + r.Width/2, r.Bottom)),
+                (ResizeHandle.BottomRight,new Point(r.Right,          r.Bottom)),
+            };
+
+            foreach (var (h, c) in pts)
+            {
+                if (Math.Abs(p.X - c.X) <= half && Math.Abs(p.Y - c.Y) <= half)
+                    return h;
+            }
+
+            // 内部 → Move（仅在距离边缘 > 4 处，避免与 resize 误触）
+            if (r.Contains(p))
+                return ResizeHandle.Move;
+
+            return ResizeHandle.None;
+        }
+
+        private Cursor CursorForHandle(ResizeHandle h)
+        {
+            switch (h)
+            {
+                case ResizeHandle.TopLeft:
+                case ResizeHandle.BottomRight:
+                    return Cursors.SizeNWSE;
+                case ResizeHandle.TopRight:
+                case ResizeHandle.BottomLeft:
+                    return Cursors.SizeNESW;
+                case ResizeHandle.Top:
+                case ResizeHandle.Bottom:
+                    return Cursors.SizeNS;
+                case ResizeHandle.Left:
+                case ResizeHandle.Right:
+                    return Cursors.SizeWE;
+                case ResizeHandle.Move:
+                    return Cursors.SizeAll;
+                default:
+                    return Cursors.Cross;
+            }
+        }
+
+        private void ApplyResize(Point current)
+        {
+            int dx = current.X - _dragStartPoint.X;
+            int dy = current.Y - _dragStartPoint.Y;
+            var r = _dragStartRect;
+
+            int left = r.Left, top = r.Top, right = r.Right, bottom = r.Bottom;
+
+            switch (_activeHandle)
+            {
+                case ResizeHandle.TopLeft: left += dx; top += dy; break;
+                case ResizeHandle.Top: top += dy; break;
+                case ResizeHandle.TopRight: right += dx; top += dy; break;
+                case ResizeHandle.Left: left += dx; break;
+                case ResizeHandle.Right: right += dx; break;
+                case ResizeHandle.BottomLeft: left += dx; bottom += dy; break;
+                case ResizeHandle.Bottom: bottom += dy; break;
+                case ResizeHandle.BottomRight: right += dx; bottom += dy; break;
+                case ResizeHandle.Move:
+                    left += dx; right += dx; top += dy; bottom += dy;
+                    // 防止移动越界
+                    if (left < 0) { right -= left; left = 0; }
+                    if (top < 0) { bottom -= top; top = 0; }
+                    if (right > Width) { left -= (right - Width); right = Width; }
+                    if (bottom > Height) { top -= (bottom - Height); bottom = Height; }
+                    break;
+            }
+
+            // 边界夹紧 + 最小尺寸
+            left = Math.Max(0, Math.Min(left, Width));
+            right = Math.Max(0, Math.Min(right, Width));
+            top = Math.Max(0, Math.Min(top, Height));
+            bottom = Math.Max(0, Math.Min(bottom, Height));
+
+            int x = Math.Min(left, right);
+            int y = Math.Min(top, bottom);
+            int w = Math.Max(8, Math.Abs(right - left));
+            int h = Math.Max(8, Math.Abs(bottom - top));
+
+            _selectionRect = new Rectangle(x, y, w, h);
+        }
+
+        private void RepositionToolbar()
+        {
+            if (_toolbar == null) return;
+
+            // _selectionRect 是 CaptureForm 局部坐标，需要换算到屏幕坐标
+            int x = _selectionRect.Left;
+            int y = _selectionRect.Bottom + 8;
+            if (y + _toolbar.Height > Height)
+                y = _selectionRect.Top - _toolbar.Height - 8;
+            if (y < 0) y = Math.Max(0, _selectionRect.Bottom - _toolbar.Height - 8);
+
+            if (x + _toolbar.Width > Width) x = Math.Max(0, Width - _toolbar.Width - 4);
+            if (x < 0) x = 4;
+
+            // 转换为屏幕坐标
+            var screenPt = this.PointToScreen(new Point(x, y));
+            _toolbar.Location = screenPt;
         }
 
         private Rectangle ScreenToLocal(Rectangle screenRect)
@@ -599,7 +819,12 @@ namespace Snapix
         {
             base.OnFormClosed(e);
             _screenshot?.Dispose();
-            _toolbar?.Dispose();
+            _dimmedScreenshot?.Dispose();
+            if (_toolbar != null && !_toolbar.IsDisposed)
+            {
+                _toolbar.Close();
+                _toolbar.Dispose();
+            }
         }
     }
 }

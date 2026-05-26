@@ -9,9 +9,9 @@ namespace Snapix
 {
     /// <summary>
     /// 截图完成后显示的浮动工具栏。
-    /// 圆角磨砂深色卡片 + 矢量图标。
+    /// 独立的无边框 TopMost 小窗口，避免移动时触发父遮罩重绘。
     /// </summary>
-    internal sealed class AnnotationToolbar : Control
+    internal sealed class AnnotationToolbar : Form
     {
         public event Action<ToolType> ToolSelected;
         public event Action<Color> ColorSelected;
@@ -34,15 +34,50 @@ namespace Snapix
 
         public AnnotationToolbar()
         {
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.ShowInTaskbar = false;
+            this.StartPosition = FormStartPosition.Manual;
+            this.TopMost = true;
+            this.AutoScaleMode = AutoScaleMode.None;
+            this.DoubleBuffered = true;
+            this.BackColor = Color.FromArgb(40, 40, 42); // 实色背景，圆角通过 Region 裁剪
+            this.Height = Height_;
+
             this.SetStyle(
                 ControlStyles.UserPaint |
                 ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer |
-                ControlStyles.SupportsTransparentBackColor |
                 ControlStyles.ResizeRedraw, true);
-            this.BackColor = Color.Transparent;
-            this.Height = Height_;
+
             BuildButtons();
+            UpdateRegion();
+        }
+
+        protected override bool ShowWithoutActivation => true; // 显示时不抢焦点
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                // WS_EX_NOACTIVATE：永远不获得焦点，避免点工具栏时主遮罩失焦
+                cp.ExStyle |= 0x08000000;
+                // WS_EX_TOOLWINDOW：不出现在 alt-tab
+                cp.ExStyle |= 0x00000080;
+                return cp;
+            }
+        }
+
+        private void UpdateRegion()
+        {
+            using (var path = GraphicsHelpers.RoundRect(new RectangleF(0, 0, Width, Height), CornerRadius))
+                this.Region = new Region(path);
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            UpdateRegion();
         }
 
         private void BuildButtons()
@@ -144,20 +179,7 @@ namespace Snapix
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            var rect = new RectangleF(0, 0, Width, Height);
-
-            // 背景圆角卡片
-            using (var path = GraphicsHelpers.RoundRect(rect, CornerRadius))
-            using (var brush = new SolidBrush(Theme.ToolbarBackground))
-            {
-                g.FillPath(brush, path);
-
-                // 高光描边
-                using (var pen = new Pen(Theme.ToolbarBorder, 1f))
-                    g.DrawPath(pen, path);
-            }
-
-            // 分组分隔竖线（在工具组、颜色组、撤销组之间）
+            // 背景已经由 BackColor + Region 圆角裁剪完成，这里只画分隔竖线
             DrawDividers(g);
         }
 
