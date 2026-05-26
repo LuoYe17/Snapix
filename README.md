@@ -6,6 +6,19 @@
 [![Release](https://img.shields.io/github/v/release/LuoYe17/Snapix?include_prereleases&label=release)](https://github.com/LuoYe17/Snapix/releases)
 [![License](https://img.shields.io/github/license/LuoYe17/Snapix)](LICENSE)
 
+整个程序是一个 50 KB 左右的 exe。作为对比：
+
+| 工具 | 体积 |
+|---|---|
+| Snapix | ~50 KB |
+| Lightshot | ~3 MB |
+| Greenshot | ~3.8 MB |
+| ShareX | ~10 MB |
+| Snipaste | ~17 MB |
+| Flameshot | ~30 MB |
+
+体积小是因为只用 .NET Framework 4.8（Win10/11 系统自带，不需要打包运行时），加上界面、图标、托盘 icon 全部用 GDI+ 矢量自绘，没有嵌入任何图片资源。
+
 ## 起因
 
 写这个是因为我自己每天截图都不顺手。Win+Shift+S 标注弱、保存麻烦；Snipaste 功能太多按错；微信截图要登录。所以做了一个只管截图、按 PrintScreen 就能用的工具，单文件可以拷到 U 盘里到处带。
