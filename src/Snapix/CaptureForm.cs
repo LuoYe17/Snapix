@@ -34,8 +34,13 @@ namespace Snapix
         private readonly List<AnnotationBase> _redoStack = new List<AnnotationBase>();
         private AnnotationBase _currentAnnotation;
         private ToolType _currentTool = ToolType.None;
-        private Color _currentColor = Color.Red;
+        private Color _currentColor = Color.FromArgb(255, 255, 69, 58); // 与色板首项一致
         private int _currentThickness = 2;
+        private const float TextFontSize = 16f;
+
+        // 文字编辑器
+        private TextBox _textEditor;
+        private Point _textEditorOrigin; // 选区局部坐标
 
         // 工具栏
         private AnnotationToolbar _toolbar;
@@ -167,6 +172,13 @@ namespace Snapix
                 _startPoint = e.Location;
                 _endPoint = e.Location;
             }
+            else if (_currentTool == ToolType.Text)
+            {
+                // 文字工具：点击位置弹出输入框
+                if (!_selectionRect.Contains(e.Location)) return;
+                CommitTextEditor();
+                BeginTextEditor(e.Location);
+            }
             else if (_currentTool != ToolType.None)
             {
                 // 开始标注
@@ -266,6 +278,9 @@ namespace Snapix
         {
             base.OnKeyDown(e);
 
+            // 文字编辑器持有焦点时，让它自己处理键盘
+            if (_textEditor != null && _textEditor.Focused) return;
+
             if (e.KeyCode == Keys.Escape)
             {
                 CancelCapture();
@@ -299,12 +314,14 @@ namespace Snapix
         private void ConfirmCapture()
         {
             if (!_selectionDone) return;
+            CommitTextEditor();
             CopyToClipboard();
             Close();
         }
 
         private void CancelCapture()
         {
+            DisposeTextEditor();
             Close();
         }
 
@@ -395,8 +412,9 @@ namespace Snapix
             _toolbar = new AnnotationToolbar();
             _toolbar.ToolSelected += (tool) =>
             {
+                CommitTextEditor(); // 切换工具前先提交未完成的文字
                 _currentTool = tool;
-                this.Cursor = tool == ToolType.None ? Cursors.Cross : Cursors.Default;
+                this.Cursor = tool == ToolType.None ? Cursors.Cross : (tool == ToolType.Text ? Cursors.IBeam : Cursors.Default);
             };
             _toolbar.ColorSelected += (color) => _currentColor = color;
             _toolbar.ConfirmClicked += () => ConfirmCapture();
@@ -458,10 +476,121 @@ namespace Snapix
                 case ToolType.Mosaic:
                     return new MosaicAnnotation(start, _screenshot, _selectionRect);
                 case ToolType.Text:
-                    return new TextAnnotation(start, _currentColor);
+                    // 文字工具不通过 CreateAnnotation 走鼠标拖拽流程，直接返回 null
+                    return null;
                 default:
                     return null;
             }
+        }
+
+        private void BeginTextEditor(Point clickPoint)
+        {
+            // 用 TextBox 作为编辑器；提交后转 TextAnnotation
+            _textEditorOrigin = new Point(clickPoint.X - _selectionRect.X, clickPoint.Y - _selectionRect.Y);
+
+            _textEditor = new TextBox
+            {
+                Multiline = true,
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.FromArgb(30, 30, 32),
+                ForeColor = _currentColor,
+                Font = new Font("Microsoft YaHei UI", TextFontSize),
+                AcceptsReturn = false, // 单行 Enter 用作提交，多行用 Shift+Enter
+                Location = clickPoint,
+                Size = new Size(200, 36),
+                Cursor = Cursors.IBeam,
+            };
+
+            _textEditor.KeyDown += TextEditor_KeyDown;
+            _textEditor.LostFocus += TextEditor_LostFocus;
+            _textEditor.TextChanged += TextEditor_AutoResize;
+
+            this.Controls.Add(_textEditor);
+            _textEditor.BringToFront();
+            _textEditor.Focus();
+        }
+
+        private void TextEditor_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                e.SuppressKeyPress = true;
+                CancelTextEditor();
+            }
+            else if (e.KeyCode == Keys.Enter)
+            {
+                if (e.Shift)
+                {
+                    // 多行：手动插入换行
+                    e.SuppressKeyPress = true;
+                    int pos = _textEditor.SelectionStart;
+                    _textEditor.Text = _textEditor.Text.Insert(pos, Environment.NewLine);
+                    _textEditor.SelectionStart = pos + Environment.NewLine.Length;
+                }
+                else
+                {
+                    e.SuppressKeyPress = true;
+                    CommitTextEditor();
+                }
+            }
+        }
+
+        private void TextEditor_AutoResize(object sender, EventArgs e)
+        {
+            if (_textEditor == null) return;
+
+            using (var g = _textEditor.CreateGraphics())
+            {
+                var size = g.MeasureString(
+                    string.IsNullOrEmpty(_textEditor.Text) ? "M" : _textEditor.Text,
+                    _textEditor.Font);
+                int newW = Math.Max(80, (int)Math.Ceiling(size.Width) + 16);
+                int newH = Math.Max(32, (int)Math.Ceiling(size.Height) + 12);
+                _textEditor.Size = new Size(newW, newH);
+            }
+        }
+
+        private void CommitTextEditor()
+        {
+            if (_textEditor == null) return;
+
+            var text = _textEditor.Text;
+            if (!string.IsNullOrEmpty(text))
+            {
+                _annotations.Add(new TextAnnotation(_textEditorOrigin, _currentColor, text, TextFontSize));
+                _redoStack.Clear();
+            }
+
+            DisposeTextEditor();
+            Invalidate();
+        }
+
+        private void CancelTextEditor()
+        {
+            DisposeTextEditor();
+            Invalidate();
+        }
+
+        private void TextEditor_LostFocus(object sender, EventArgs e)
+        {
+            // 字段已被 DisposeTextEditor 清空时不再处理
+            if (_textEditor == null) return;
+            CommitTextEditor();
+        }
+
+        private void DisposeTextEditor()
+        {
+            var editor = _textEditor;
+            if (editor == null) return;
+
+            // 先置空字段并解除事件，防止 Controls.Remove 触发 LostFocus 导致重入
+            _textEditor = null;
+            editor.KeyDown -= TextEditor_KeyDown;
+            editor.LostFocus -= TextEditor_LostFocus;
+            editor.TextChanged -= TextEditor_AutoResize;
+
+            this.Controls.Remove(editor);
+            editor.Dispose();
         }
 
         #endregion
