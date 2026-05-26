@@ -16,6 +16,7 @@ namespace Snapix
         public event Action<ToolType> ToolSelected;
         public event Action<Color> ColorSelected;
         public event Action<int> ThicknessSelected;
+        public event Action<float> FontSizeSelected;
         public event Action ConfirmClicked;
         public event Action CancelClicked;
         public event Action SaveClicked;
@@ -33,6 +34,7 @@ namespace Snapix
         private readonly List<IconButton> _toolButtons = new List<IconButton>();
         private readonly List<ColorSwatch> _swatches = new List<ColorSwatch>();
         private readonly List<ThicknessSwatch> _thicknessSwatches = new List<ThicknessSwatch>();
+        private readonly List<FontSizeSwatch> _fontSizeSwatches = new List<FontSizeSwatch>();
         private readonly ToolTip _tooltip = new ToolTip
         {
             InitialDelay = 400,
@@ -69,6 +71,20 @@ namespace Snapix
         {
             foreach (var sw in _thicknessSwatches)
                 sw.SetActive(sw.Thickness == thickness);
+        }
+
+        /// <summary>外部同步当前字号档位选中态。</summary>
+        public void SetFontSizeVisual(float size)
+        {
+            foreach (var sw in _fontSizeSwatches)
+                sw.SetActive(sw.FontSize == size);
+        }
+
+        /// <summary>切换"线宽组 / 字号组"互斥占位显示。文字工具时显示字号组。</summary>
+        public void SetFontSizeGroupVisible(bool visible)
+        {
+            foreach (var sw in _thicknessSwatches) sw.Visible = !visible;
+            foreach (var sw in _fontSizeSwatches) sw.Visible = visible;
         }
 
         protected override CreateParams CreateParams
@@ -114,6 +130,7 @@ namespace Snapix
             // ========== 线宽组 ==========
             int[] thicknesses = { 2, 4, 6 };
             string[] thicknessNames = { "细", "中", "粗" };
+            int thicknessGroupX = x;
             for (int i = 0; i < thicknesses.Length; i++)
             {
                 var t = thicknesses[i];
@@ -131,6 +148,33 @@ namespace Snapix
             }
             // 默认中等粗细
             if (_thicknessSwatches.Count >= 2) _thicknessSwatches[1].SetActive(true);
+
+            // ========== 字号组（与线宽组互斥占位，文字工具时显示）==========
+            float[] fontSizes = { 12f, 18f, 28f };
+            float[] fontEms = { 11f, 15f, 19f }; // 视觉档差，9/13/17 像素 ≈ em 11/15/19
+            string[] fontNames = { "小", "中", "大" };
+            int fx = thicknessGroupX;
+            for (int i = 0; i < fontSizes.Length; i++)
+            {
+                var size = fontSizes[i];
+                var sw = new FontSizeSwatch(size, fontEms[i])
+                {
+                    Location = new Point(fx, swatchY),
+                    Visible = false,
+                };
+                sw.Click += (s, e) =>
+                {
+                    foreach (var other in _fontSizeSwatches) other.SetActive(false);
+                    sw.SetActive(true);
+                    FontSizeSelected?.Invoke(size);
+                };
+                _fontSizeSwatches.Add(sw);
+                this.Controls.Add(sw);
+                _tooltip.SetToolTip(sw, "字号：" + fontNames[i]);
+                fx += SwatchSize + Gap;
+            }
+            // 默认中等字号
+            if (_fontSizeSwatches.Count >= 2) _fontSizeSwatches[1].SetActive(true);
 
             x += GroupGap;
 

@@ -46,7 +46,7 @@ namespace Snapix
             { ToolType.Mosaic,    4 },
         };
         private int CurrentThickness => _toolThickness.TryGetValue(_currentTool, out var t) ? t : 4;
-        private const float TextFontSize = 16f;
+        private float _currentFontSize = 18f;
 
         // 文字编辑器
         private TextBox _textEditor;
@@ -618,8 +618,11 @@ namespace Snapix
                 _currentTool = tool;
                 this.Cursor = tool == ToolType.None ? Cursors.Cross : (tool == ToolType.Text ? Cursors.IBeam : Cursors.Default);
 
-                // 工具栏线宽 swatch 同步到当前工具的偏好
-                if (_toolThickness.TryGetValue(tool, out var t))
+                // 文字工具显示字号组，其他工具显示线宽组
+                _toolbar.SetFontSizeGroupVisible(tool == ToolType.Text);
+                if (tool == ToolType.Text)
+                    _toolbar.SetFontSizeVisual(_currentFontSize);
+                else if (_toolThickness.TryGetValue(tool, out var t))
                     _toolbar.SetThicknessVisual(t);
             };
             _toolbar.ColorSelected += (color) => _currentColor = color;
@@ -628,6 +631,7 @@ namespace Snapix
                 if (_currentTool != ToolType.None && _toolThickness.ContainsKey(_currentTool))
                     _toolThickness[_currentTool] = t;
             };
+            _toolbar.FontSizeSelected += (s) => _currentFontSize = s;
             _toolbar.ConfirmClicked += () => ConfirmCapture();
             _toolbar.CancelClicked += () => CancelCapture();
             _toolbar.SaveClicked += () => SaveToFile();
@@ -849,7 +853,7 @@ namespace Snapix
                 BorderStyle = BorderStyle.FixedSingle,
                 BackColor = Color.FromArgb(30, 30, 32),
                 ForeColor = _currentColor,
-                Font = new Font("Microsoft YaHei UI", TextFontSize),
+                Font = new Font("Microsoft YaHei UI", _currentFontSize),
                 AcceptsReturn = false, // 单行 Enter 用作提交，多行用 Shift+Enter
                 Location = clickPoint,
                 Size = new Size(200, 36),
@@ -912,7 +916,7 @@ namespace Snapix
             var text = _textEditor.Text;
             if (!string.IsNullOrEmpty(text))
             {
-                _annotations.Add(new TextAnnotation(_textEditorOrigin, _currentColor, text, TextFontSize));
+                _annotations.Add(new TextAnnotation(_textEditorOrigin, _currentColor, text, _textEditor.Font.Size));
                 _redoStack.Clear();
             }
 
