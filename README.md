@@ -6,11 +6,11 @@
 [![Release](https://img.shields.io/github/v/release/LuoYe17/Snapix?include_prereleases&label=release)](https://github.com/LuoYe17/Snapix/releases)
 [![License](https://img.shields.io/github/license/LuoYe17/Snapix)](LICENSE)
 
-整个程序是一个 57 KB 左右的 exe。作为对比：
+整个程序是一个 64 KB 左右的 exe。作为对比：
 
 | 工具 | 体积 |
 |---|---|
-| Snapix | ~57 KB |
+| Snapix | ~64 KB |
 | Lightshot | ~3 MB |
 | Greenshot | ~3.8 MB |
 | ShareX | ~10 MB |
