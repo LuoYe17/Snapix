@@ -5,7 +5,24 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [1.0.0] - 2026-05
+
+第一个稳定版本。
+
+### Added
+- 设置面板：自定义截图热键、默认保存目录、Windows 启动时自动运行
+- 文字标注字号档位（小 / 中 / 大），与文字工具联动
+- 复制 / 保存成功后右下角 toast 反馈
+- README 演示 GIF
+- 启动速度埋点确认稳态 ~75ms（4K 多屏实测）
+
+### Changed
+- Ctrl+C 现在等同于 Enter：复制并关闭遮罩
+- 设置面板使用与项目一致的深色磨砂 UI（圆角、自定义控件）
+
+### Fixed
+- 系统级抢占的热键（如 Win11 上 Snipping Tool 占用的 PrintScreen）现在能在设置中重新捕获，使用 low-level 键盘钩子绕过应用消息泵
+- 切换工具时正确同步线宽 / 字号档位的视觉选中态
 
 ## [0.1.0] - 2026-05
 
