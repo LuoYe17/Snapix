@@ -150,6 +150,9 @@ namespace Snapix
             var captureForm = new CaptureForm();
             captureForm.FormClosed += (s, e) => _capturing = false;
             captureForm.Show();
+            // 确保获得键盘焦点，使 Esc/Enter/Ctrl+S 等快捷键生效
+            captureForm.Activate();
+            captureForm.Focus();
         }
 
         private void ExitApp()

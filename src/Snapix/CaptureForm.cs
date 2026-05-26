@@ -580,6 +580,10 @@ namespace Snapix
 
         #region Toolbar
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+        private const int SW_SHOWNOACTIVATE = 4;
+
         private void ShowToolbar()
         {
             if (_toolbar != null) return;
@@ -608,7 +612,14 @@ namespace Snapix
             _toolbar.RedoClicked += () => Redo();
 
             RepositionToolbar();
-            _toolbar.Show(this); // 独立窗口显示，不进入 this.Controls
+            // 用 SW_SHOWNOACTIVATE 显示，避免抢走 CaptureForm 的键盘焦点
+            _toolbar.Owner = this;
+            ShowWindow(_toolbar.Handle, SW_SHOWNOACTIVATE);
+            _toolbar.Visible = true; // 同步 .NET 状态
+
+            // 显式抢回键盘焦点
+            this.Activate();
+            this.Focus();
         }
 
         #endregion
