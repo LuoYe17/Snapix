@@ -466,7 +466,7 @@ namespace Snapix
             }
             else if (e.Control && e.KeyCode == Keys.C)
             {
-                CopyToClipboard();
+                ConfirmCapture();
             }
             else if (e.Control && e.KeyCode == Keys.S)
             {
@@ -507,6 +507,7 @@ namespace Snapix
             {
                 Clipboard.SetImage(result);
             }
+            Toast.Show("已复制到剪贴板");
         }
 
         private void SaveToFile()
@@ -524,6 +525,7 @@ namespace Snapix
                     {
                         result.Save(path, ImageFormat.Png);
                     }
+                    Toast.Show("已保存到 " + System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(path)));
                     Close();
                     return;
                 }
@@ -551,6 +553,7 @@ namespace Snapix
 
                         result.Save(dlg.FileName, format);
                     }
+                    Toast.Show("已保存到 " + System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(dlg.FileName)));
                     Close();
                 }
             }

@@ -6,11 +6,11 @@
 [![Release](https://img.shields.io/github/v/release/LuoYe17/Snapix?include_prereleases&label=release)](https://github.com/LuoYe17/Snapix/releases)
 [![License](https://img.shields.io/github/license/LuoYe17/Snapix)](LICENSE)
 
-整个程序是一个 64 KB 左右的 exe。作为对比：
+整个程序是一个 66 KB 左右的 exe。作为对比：
 
 | 工具 | 体积 |
 |---|---|
-| Snapix | ~64 KB |
+| Snapix | ~66 KB |
 | Lightshot | ~3 MB |
 | Greenshot | ~3.8 MB |
 | ShareX | ~10 MB |
@@ -61,9 +61,8 @@ dotnet build src/Snapix/Snapix.csproj -c Release
 | 鼠标拖拽 | 框选 |
 | 单击窗口 | 吸附为该窗口边界 |
 | Esc | 取消 |
-| Enter / 双击 | 确认并复制到剪贴板 |
-| Ctrl+C | 复制 |
-| Ctrl+S | 另存为 |
+| Enter / 双击 / Ctrl+C | 复制到剪贴板并关闭 |
+| Ctrl+S | 保存为图片 |
 | Ctrl+Z / Ctrl+Y | 撤销 / 重做 |
 
 ## 系统要求
