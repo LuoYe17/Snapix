@@ -59,6 +59,8 @@ namespace Snapix
         private NotifyIcon _trayIcon;
         private HotkeyManager _hotkeyManager;
         private bool _capturing;
+        private string _hotkeyLabel = "PrintScreen";
+        private Settings _settings;
 
         public MainForm()
         {
@@ -68,6 +70,7 @@ namespace Snapix
             this.Opacity = 0;
             this.Size = new Size(0, 0);
 
+            _settings = Settings.Load();
             InitTray();
         }
 
@@ -77,10 +80,38 @@ namespace Snapix
             this.Visible = false;
 
             _hotkeyManager = new HotkeyManager(this.Handle);
-            if (!_hotkeyManager.Register(Keys.PrintScreen))
+            if (_hotkeyManager.Register(Keys.PrintScreen))
             {
-                // PrintScreen 被占用时尝试 Ctrl+Alt+A
-                _hotkeyManager.Register(Keys.A, 0x0002 | 0x0001); // MOD_CONTROL | MOD_ALT
+                _hotkeyLabel = "PrintScreen";
+            }
+            else if (_hotkeyManager.Register(Keys.A, 0x0002 | 0x0001)) // MOD_CONTROL | MOD_ALT
+            {
+                _hotkeyLabel = "Ctrl+Alt+A";
+            }
+            else
+            {
+                _hotkeyLabel = "(热键被占用)";
+            }
+
+            // 托盘菜单第一项跟随实际热键
+            if (_trayIcon?.ContextMenuStrip?.Items.Count > 0)
+                _trayIcon.ContextMenuStrip.Items[0].Text = $"截图 ({_hotkeyLabel})";
+
+            // 首次启动引导：用 MessageBox 而非托盘气泡（系统通知设置可能屏蔽气泡）
+            if (!_settings.FirstRunCompleted)
+            {
+                _settings.FirstRunCompleted = true;
+                _settings.Save();
+
+                // 延迟弹出，避免抢在窗口创建前
+                BeginInvoke(new Action(() =>
+                {
+                    MessageBox.Show(
+                        $"Snapix 已驻留在系统托盘。\n\n按 {_hotkeyLabel} 即可开始截图。\n右键托盘图标可以退出。",
+                        "Snapix",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }));
             }
         }
 
