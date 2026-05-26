@@ -333,14 +333,12 @@ namespace Snapix
         {
             if (!_capturing) return false;
 
-            // 在 hook 线程里读修饰键状态，UI 线程读会有时序差
+            // 修饰键状态来自 hook 内部状态机，不依赖 GetAsyncKeyState：
+            // LL hook 一旦 return 1 吞掉 modifier 自身的 KEYDOWN，系统状态机就读不到了
             uint mods = 0;
-            if ((LowLevelKeyboardHook.GetAsyncKeyState(LowLevelKeyboardHook.VK_CONTROL) & 0x8000) != 0)
-                mods |= HotkeyManager.MOD_CONTROL;
-            if ((LowLevelKeyboardHook.GetAsyncKeyState(LowLevelKeyboardHook.VK_MENU) & 0x8000) != 0)
-                mods |= HotkeyManager.MOD_ALT;
-            if ((LowLevelKeyboardHook.GetAsyncKeyState(LowLevelKeyboardHook.VK_SHIFT) & 0x8000) != 0)
-                mods |= HotkeyManager.MOD_SHIFT;
+            if (LowLevelKeyboardHook.IsCtrlDown) mods |= HotkeyManager.MOD_CONTROL;
+            if (LowLevelKeyboardHook.IsAltDown) mods |= HotkeyManager.MOD_ALT;
+            if (LowLevelKeyboardHook.IsShiftDown) mods |= HotkeyManager.MOD_SHIFT;
 
             // 拼成 WinForms Keys：低位是 KeyCode，高位是修饰位
             Keys keyData = (Keys)vkCode;
@@ -456,6 +454,10 @@ namespace Snapix
 
             // 3) 同步注册表 Run 项
             ApplyAutoStart(_settings.AutoStart);
+
+            // 4) 显式关闭：自绘按钮即使实现 IButtonControl，鼠标点击后 Form 也不会自动关
+            this.DialogResult = DialogResult.OK;
+            this.Close();
         }
 
         private static void ApplyAutoStart(bool enable)
@@ -496,21 +498,42 @@ namespace Snapix
             private const int HC_ACTION = 0;
             private const int WM_KEYDOWN = 0x0100;
             private const int WM_SYSKEYDOWN = 0x0104;
+            private const int WM_KEYUP = 0x0101;
+            private const int WM_SYSKEYUP = 0x0105;
 
             public const int VK_SHIFT = 0x10;
             public const int VK_CONTROL = 0x11;
             public const int VK_MENU = 0x12;
+            public const int VK_LCONTROL = 0xA2, VK_RCONTROL = 0xA3;
+            public const int VK_LSHIFT = 0xA0, VK_RSHIFT = 0xA1;
+            public const int VK_LMENU = 0xA4, VK_RMENU = 0xA5;
 
             // 静态字段持有 delegate 防 GC——SetWindowsHookEx 最经典的坑
             private static HookProc _proc;
             private static IntPtr _hook = IntPtr.Zero;
             private static Func<int, bool> _onKey;
 
+            // 内部修饰键状态机：替代 GetAsyncKeyState
+            // hook 内部维护，因为 hook 一旦吞掉 modifier 自身的 KEYDOWN，
+            // 系统全局键状态就不会更新，GetAsyncKeyState 也读不到了
+            private static bool _ctrlDown;
+            private static bool _altDown;
+            private static bool _shiftDown;
+
+            public static bool IsCtrlDown { get { return _ctrlDown; } }
+            public static bool IsAltDown { get { return _altDown; } }
+            public static bool IsShiftDown { get { return _shiftDown; } }
+
             public static void Install(Func<int, bool> onKey)
             {
                 if (_hook != IntPtr.Zero) return; // 已装则跳过
                 _onKey = onKey;
                 _proc = HookCallback;
+
+                // 复位修饰键状态，避免上次安装的残留
+                _ctrlDown = false;
+                _altDown = false;
+                _shiftDown = false;
 
                 // .NET Framework 4.8 上 hMod 必须是有效模块句柄；用主模块名取
                 IntPtr hMod;
@@ -533,19 +556,37 @@ namespace Snapix
                 _onKey = null;
             }
 
+            private static bool IsCtrlVk(uint vk) { return vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL; }
+            private static bool IsShiftVk(uint vk) { return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT; }
+            private static bool IsAltVk(uint vk) { return vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU; }
+
             private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
             {
                 if (nCode == HC_ACTION)
                 {
                     int msg = wParam.ToInt32();
-                    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+                    bool isDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+                    bool isUp = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+
+                    if (isDown || isUp)
                     {
                         var data = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
-                        var cb = _onKey;
-                        if (cb != null && cb((int)data.vkCode))
+                        uint vk = data.vkCode;
+
+                        // 先维护状态机
+                        if (IsCtrlVk(vk)) _ctrlDown = isDown;
+                        else if (IsShiftVk(vk)) _shiftDown = isDown;
+                        else if (IsAltVk(vk)) _altDown = isDown;
+                        else if (isDown)
                         {
-                            // 返回 1 阻断消息继续传递（Snipping Tool 收不到 PrintScreen）
-                            return (IntPtr)1;
+                            // 仅"非修饰键的 KEYDOWN"才询问回调是否拦截
+                            // modifier 自身永远放行，避免吞掉系统状态机更新
+                            var cb = _onKey;
+                            if (cb != null && cb((int)vk))
+                            {
+                                // 返回 1 阻断消息继续传递（Snipping Tool 收不到 PrintScreen）
+                                return (IntPtr)1;
+                            }
                         }
                     }
                 }
@@ -576,9 +617,6 @@ namespace Snapix
 
             [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
             private static extern IntPtr GetModuleHandle(string lpModuleName);
-
-            [DllImport("user32.dll")]
-            public static extern short GetAsyncKeyState(int vKey);
         }
     }
 }
