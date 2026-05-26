@@ -58,6 +58,10 @@ namespace Snapix
         private const int HandleSize = 8;
         private const int HandleHitPadding = 4;
 
+        // 标注拖拽
+        private AnnotationBase _draggingAnnotation;
+        private Point _annotationDragStart;
+
         // 工具栏
         private AnnotationToolbar _toolbar;
 
@@ -233,31 +237,51 @@ namespace Snapix
                 _isSelecting = true;
                 _startPoint = e.Location;
                 _endPoint = e.Location;
+                return;
             }
-            else if (_currentTool == ToolType.None)
+
+            // 1) 选区边缘手柄 → resize（即使有标注工具激活也优先生效）
+            var handle = HitTestHandleEdge(e.Location);
+            if (handle != ResizeHandle.None)
             {
-                // 选区完成 + 未激活标注工具：判定 resize 手柄 / 移动
-                var handle = HitTestHandle(e.Location);
-                if (handle != ResizeHandle.None)
-                {
-                    _activeHandle = handle;
-                    _dragStartPoint = e.Location;
-                    _dragStartRect = _selectionRect;
-                }
+                _activeHandle = handle;
+                _dragStartPoint = e.Location;
+                _dragStartRect = _selectionRect;
+                return;
             }
-            else if (_currentTool == ToolType.Text)
+
+            // 2) 命中已有标注 → 拖动该标注（无论当前是什么工具）
+            var hit = HitTestAnnotation(e.Location);
+            if (hit != null)
             {
-                // 文字工具：点击位置弹出输入框
-                if (!_selectionRect.Contains(e.Location)) return;
+                _draggingAnnotation = hit;
+                _annotationDragStart = e.Location;
+                return;
+            }
+
+            // 3) 在选区外点击 → 啥都不做（防止误操作）
+            if (!_selectionRect.Contains(e.Location)) return;
+
+            // 4) 选区内空白 + 文字工具 → 弹输入框
+            if (_currentTool == ToolType.Text)
+            {
                 CommitTextEditor();
                 BeginTextEditor(e.Location);
+                return;
             }
-            else
+
+            // 5) 选区内空白 + 其他标注工具 → 画新标注
+            if (_currentTool != ToolType.None)
             {
-                // 开始标注
                 var relativePoint = new Point(e.X - _selectionRect.X, e.Y - _selectionRect.Y);
                 _currentAnnotation = CreateAnnotation(_currentTool, relativePoint);
+                return;
             }
+
+            // 6) 选区内空白 + 无工具 → 整体移动选区
+            _activeHandle = ResizeHandle.Move;
+            _dragStartPoint = e.Location;
+            _dragStartRect = _selectionRect;
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -287,6 +311,21 @@ namespace Snapix
                     InflateForDecorations(_selectionRect));
                 Invalidate(union);
             }
+            else if (_draggingAnnotation != null)
+            {
+                var oldBounds = _draggingAnnotation.Bounds;
+                int dx = e.X - _annotationDragStart.X;
+                int dy = e.Y - _annotationDragStart.Y;
+                _draggingAnnotation.Translate(dx, dy);
+                _annotationDragStart = e.Location;
+
+                // 增量重绘：合并旧+新 bounds，并换算到屏幕坐标
+                var newBounds = _draggingAnnotation.Bounds;
+                var dirty = Rectangle.Union(oldBounds, newBounds);
+                dirty.Offset(_selectionRect.X, _selectionRect.Y);
+                dirty.Inflate(4, 4);
+                Invalidate(dirty);
+            }
             else if (!_selectionDone)
             {
                 // 窗口吸附检测
@@ -313,11 +352,34 @@ namespace Snapix
                 _currentAnnotation.Update(relativePoint);
                 Invalidate();
             }
-            else if (_selectionDone && _currentTool == ToolType.None)
+            else if (_selectionDone)
             {
-                // 仅更新光标
-                var handle = HitTestHandle(e.Location);
-                this.Cursor = CursorForHandle(handle);
+                // 鼠标悬停光标提示，让"标注可拖动"自然可发现
+                var handle = HitTestHandleEdge(e.Location);
+                if (handle != ResizeHandle.None)
+                {
+                    this.Cursor = CursorForHandle(handle);
+                }
+                else if (HitTestAnnotation(e.Location) != null)
+                {
+                    this.Cursor = Cursors.SizeAll;
+                }
+                else if (_currentTool == ToolType.Text)
+                {
+                    this.Cursor = Cursors.IBeam;
+                }
+                else if (_currentTool != ToolType.None)
+                {
+                    this.Cursor = Cursors.Default;
+                }
+                else if (_selectionRect.Contains(e.Location))
+                {
+                    this.Cursor = Cursors.SizeAll;
+                }
+                else
+                {
+                    this.Cursor = Cursors.Cross;
+                }
             }
         }
 
@@ -351,6 +413,10 @@ namespace Snapix
             {
                 _activeHandle = ResizeHandle.None;
                 Invalidate();
+            }
+            else if (_draggingAnnotation != null)
+            {
+                _draggingAnnotation = null;
             }
             else if (_currentAnnotation != null)
             {
@@ -557,7 +623,7 @@ namespace Snapix
 
         // ---------- 选区调整/移动 ----------
 
-        private ResizeHandle HitTestHandle(Point p)
+        private ResizeHandle HitTestHandleEdge(Point p)
         {
             if (!_selectionDone) return ResizeHandle.None;
 
@@ -583,11 +649,28 @@ namespace Snapix
                     return h;
             }
 
-            // 内部 → Move（仅在距离边缘 > 4 处，避免与 resize 误触）
-            if (r.Contains(p))
-                return ResizeHandle.Move;
-
             return ResizeHandle.None;
+        }
+
+        /// <summary>给"鼠标移动到选区时改光标"用：把内部空白也认为是 Move。</summary>
+        private ResizeHandle HitTestHandle(Point p)
+        {
+            var edge = HitTestHandleEdge(p);
+            if (edge != ResizeHandle.None) return edge;
+            if (_selectionRect.Contains(p)) return ResizeHandle.Move;
+            return ResizeHandle.None;
+        }
+
+        /// <summary>从顶到底找命中的标注。</summary>
+        private AnnotationBase HitTestAnnotation(Point screenLocalPoint)
+        {
+            // 标注存储的坐标是相对于 _selectionRect.Location 的局部坐标
+            var local = new Point(screenLocalPoint.X - _selectionRect.X, screenLocalPoint.Y - _selectionRect.Y);
+            for (int i = _annotations.Count - 1; i >= 0; i--)
+            {
+                if (_annotations[i].HitTest(local)) return _annotations[i];
+            }
+            return null;
         }
 
         private Cursor CursorForHandle(ResizeHandle h)
