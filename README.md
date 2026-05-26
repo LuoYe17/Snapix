@@ -75,11 +75,7 @@ Windows 10 1903+ 或 Windows 11。系统已自带 .NET Framework 4.8，无需另
 
 ## 路线图
 
-已完成：核心截图、标注、选区调整、撤销重做。
-
-下一步打算做：
-- 设置面板（自定义热键、保存路径、开机自启）
-- 首次启动的简短引导
+已完成：核心截图、标注、选区调整、撤销重做、设置面板、首次启动引导、复制 / 保存 toast、文字字号档位。
 
 明确不做（v1 范围）：录屏、GIF、OCR、云上传。
 
@@ -88,6 +84,17 @@ Windows 10 1903+ 或 Windows 11。系统已自带 .NET Framework 4.8，无需另
 ## 贡献
 
 欢迎 PR 和 Issue。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 交流 / Bug 反馈
+
+- Bug 和功能建议请提 [Issue](https://github.com/LuoYe17/Snapix/issues)，方便公开追踪
+- QQ 群：**1101598658**（仅讨论使用问题，bug 一律 Issue）
+
+## 赞助
+
+如果觉得工具好用，可以请作者喝杯咖啡：[爱发电](https://afdian.com/a/luoye17)
+
+赞助不会改变任何开发计划，所有功能仍按公开 Roadmap 推进。
 
 ## 协议
 
