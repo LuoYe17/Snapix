@@ -6,6 +6,8 @@
 [![Release](https://img.shields.io/github/v/release/LuoYe17/Snapix?include_prereleases&label=release)](https://github.com/LuoYe17/Snapix/releases)
 [![License](https://img.shields.io/github/license/LuoYe17/Snapix)](LICENSE)
 
+![Snapix 演示](docs/demo.gif)
+
 整个程序是一个 69 KB 左右的 exe。作为对比：
 
 | 工具 | 体积 |
