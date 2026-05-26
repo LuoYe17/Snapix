@@ -80,22 +80,7 @@ namespace Snapix
             this.Visible = false;
 
             _hotkeyManager = new HotkeyManager(this.Handle);
-            if (_hotkeyManager.Register(Keys.PrintScreen))
-            {
-                _hotkeyLabel = "PrintScreen";
-            }
-            else if (_hotkeyManager.Register(Keys.A, 0x0002 | 0x0001)) // MOD_CONTROL | MOD_ALT
-            {
-                _hotkeyLabel = "Ctrl+Alt+A";
-            }
-            else
-            {
-                _hotkeyLabel = "(热键被占用)";
-            }
-
-            // 托盘菜单第一项跟随实际热键
-            if (_trayIcon?.ContextMenuStrip?.Items.Count > 0)
-                _trayIcon.ContextMenuStrip.Items[0].Text = $"截图 ({_hotkeyLabel})";
+            RegisterConfiguredHotkey();
 
             // 首次启动引导：用 MessageBox 而非托盘气泡（系统通知设置可能屏蔽气泡）
             if (!_settings.FirstRunCompleted)
@@ -119,6 +104,7 @@ namespace Snapix
         {
             var menu = new ContextMenuStrip();
             menu.Items.Add("截图 (PrintScreen)", null, (s, e) => StartCapture());
+            menu.Items.Add("设置…", null, (s, e) => ShowSettings());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("退出", null, (s, e) => ExitApp());
 
@@ -140,6 +126,39 @@ namespace Snapix
                 StartCapture();
             }
             base.WndProc(ref m);
+        }
+
+        private void RegisterConfiguredHotkey()
+        {
+            // 默认值（PrintScreen 单键）注册失败时降级到 Ctrl+Alt+A，保留首次安装体验
+            bool isDefault = _settings.HotkeyKey == (int)Keys.PrintScreen && _settings.HotkeyModifiers == 0;
+
+            if (_hotkeyManager.Register((Keys)_settings.HotkeyKey, (uint)_settings.HotkeyModifiers))
+            {
+                _hotkeyLabel = HotkeyManager.Format((Keys)_settings.HotkeyKey, (uint)_settings.HotkeyModifiers);
+            }
+            else if (isDefault && _hotkeyManager.Register(Keys.A, HotkeyManager.MOD_CONTROL | HotkeyManager.MOD_ALT))
+            {
+                _hotkeyLabel = "Ctrl+Alt+A";
+            }
+            else
+            {
+                _hotkeyLabel = "(热键被占用)";
+            }
+
+            if (_trayIcon?.ContextMenuStrip?.Items.Count > 0)
+                _trayIcon.ContextMenuStrip.Items[0].Text = $"截图 ({_hotkeyLabel})";
+        }
+
+        private void ShowSettings()
+        {
+            using (var form = new SettingsForm(_settings, _hotkeyManager))
+            {
+                form.ShowDialog();
+            }
+            // 外部契约：打开设置后无条件重新注册热键，不依赖 SettingsForm 的内部状态机
+            _settings = Settings.Load();
+            RegisterConfiguredHotkey();
         }
 
         private void StartCapture()

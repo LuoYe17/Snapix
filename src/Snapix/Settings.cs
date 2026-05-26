@@ -2,18 +2,22 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Text;
+using System.Windows.Forms;
 
 namespace Snapix
 {
     /// <summary>
     /// 极简 INI 风格配置，存于 exe 同目录。
-    /// v1 只用于"是否首次启动"标记，后续设置面板会扩展。
     /// </summary>
     internal sealed class Settings
     {
         private const string FileName = "config.ini";
 
         public bool FirstRunCompleted { get; set; }
+        public int HotkeyKey { get; set; } = (int)Keys.PrintScreen;
+        public int HotkeyModifiers { get; set; } = 0;
+        public string DefaultSaveDirectory { get; set; } = "";
+        public bool AutoStart { get; set; } = false;
 
         public static string ConfigPath
         {
@@ -49,6 +53,18 @@ namespace Snapix
                         case "FirstRunCompleted":
                             s.FirstRunCompleted = string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
                             break;
+                        case "HotkeyKey":
+                            if (int.TryParse(value, out int k)) s.HotkeyKey = k;
+                            break;
+                        case "HotkeyModifiers":
+                            if (int.TryParse(value, out int m)) s.HotkeyModifiers = m;
+                            break;
+                        case "DefaultSaveDirectory":
+                            s.DefaultSaveDirectory = value?.Trim() ?? "";
+                            break;
+                        case "AutoStart":
+                            s.AutoStart = string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+                            break;
                     }
                 }
             }
@@ -67,6 +83,10 @@ namespace Snapix
                 var sb = new StringBuilder();
                 sb.AppendLine("# Snapix configuration");
                 sb.AppendLine("FirstRunCompleted=" + (FirstRunCompleted ? "true" : "false"));
+                sb.AppendLine("HotkeyKey=" + HotkeyKey);
+                sb.AppendLine("HotkeyModifiers=" + HotkeyModifiers);
+                sb.AppendLine("DefaultSaveDirectory=" + (DefaultSaveDirectory ?? ""));
+                sb.AppendLine("AutoStart=" + (AutoStart ? "true" : "false"));
                 File.WriteAllText(ConfigPath, sb.ToString(), Encoding.UTF8);
             }
             catch

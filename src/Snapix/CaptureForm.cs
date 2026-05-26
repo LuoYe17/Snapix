@@ -513,6 +513,26 @@ namespace Snapix
         {
             if (!_selectionDone) return;
 
+            var settings = Settings.Load();
+            string defaultDir = settings.DefaultSaveDirectory;
+            if (!string.IsNullOrEmpty(defaultDir) && System.IO.Directory.Exists(defaultDir))
+            {
+                string path = System.IO.Path.Combine(defaultDir, $"Snapix_{DateTime.Now:yyyyMMdd_HHmmss}.png");
+                try
+                {
+                    using (var result = RenderResult())
+                    {
+                        result.Save(path, ImageFormat.Png);
+                    }
+                    Close();
+                    return;
+                }
+                catch
+                {
+                    // 失败回退到对话框
+                }
+            }
+
             using (var dlg = new SaveFileDialog())
             {
                 dlg.Filter = "PNG 图片|*.png|JPEG 图片|*.jpg|BMP 图片|*.bmp";
